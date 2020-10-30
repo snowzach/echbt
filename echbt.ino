@@ -11,7 +11,6 @@ static BLEUUID     sensorUUID("0bf669f4-45f2-11e7-9598-0800200c9a66");
 
 static boolean doConnect = false;
 static boolean connected = false;
-static boolean doScan = true;
 
 static BLERemoteCharacteristic* writeCharacteristic;
 static BLERemoteCharacteristic* sensorCharacteristic;
@@ -19,9 +18,11 @@ static BLEAdvertisedDevice* device;
 static BLEClient* client;
 static BLEScan* scanner;
 
-static int runtime = 0;
 static int cadence = 0;
 static int resistance = 0;
+static int power = 0;
+static unsigned long runtime = 0;
+static unsigned long last_millis = 0;
 
 const int debug = 0;
 const int maxResistance = 32;
@@ -29,11 +30,13 @@ const int maxResistance = 32;
 static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* data, size_t length, bool isNotify) {
   switch(data[1]) {
     case 0xD1:
-      runtime = int((data[7] << 8) + data[8]);
+      //runtime = int((data[7] << 8) + data[8]); // This runtime has massive drift
       cadence = int((data[9] << 8) + data[10]);
+      power = int(pow(1.028132, cadence) * pow(1.091815, resistance) * 3.024572);
       break;
     case 0xD2:
       resistance = int(data[3]);
+      power = int(pow(1.028132, cadence) * pow(1.091815, resistance) * 3.024572);
       break;
   }
   
@@ -71,10 +74,8 @@ class AdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     Serial.println(advertisedDevice.toString().c_str());
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(deviceUUID)) {
       BLEDevice::getScan()->stop();
-      delay(200);
       device = new BLEAdvertisedDevice(advertisedDevice);
       doConnect = true;
-      doScan = true;
     }
   }
 };
@@ -85,14 +86,14 @@ void updateDisplay() {
   // Runtime
   Heltec.display->setFont(ArialMT_Plain_24);
   char buf[5];
-  const int minutes = int(runtime / 60);
+  const int minutes = int(runtime / 60000);
   itoa(minutes, buf, 10);
   Heltec.display->setTextAlignment(TEXT_ALIGN_RIGHT);
   Heltec.display->drawString(48, 0, buf);
   Heltec.display->setTextAlignment(TEXT_ALIGN_LEFT);
   Heltec.display->drawXbm(0, 4, clock_icon_width, clock_icon_height, clock_icon);
   Heltec.display->drawString(48, 0, ":");
-  const int seconds = int(runtime % 60);
+  const int seconds = int(runtime % 60000)/1000;
   if(seconds < 10) {
     buf[0] = '0';
     itoa(seconds, &buf[1], 10);  
@@ -108,7 +109,7 @@ void updateDisplay() {
 
   // Power
   Heltec.display->drawXbm(66, 26, power_icon_width, power_icon_height, power_icon);
-  itoa(cadence, buf, 10);
+  itoa(power, buf, 10);
   Heltec.display->drawString(86, 22, buf);
 
   // Resistance
@@ -125,27 +126,24 @@ void updateDisplay() {
 }
 
 bool connectToServer() {
-  Serial.print("Forming a connection to ");
+  Serial.print("Connecting to ");
   Serial.println(device->getAddress().toString().c_str());
 
   client = BLEDevice::createClient();
   client->setClientCallbacks(new ClientCallback());
-  
-  // Connect to the remove BLE Server.
-  client->connect(device);  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
-  Serial.println(" - Connected to server");
+  client->connect(device);
+  Serial.println("Connected!");
 
-  // Obtain a reference to the service we are after in the remote BLE server.
   BLERemoteService* remoteService = client->getService(connectUUID);
   if (remoteService == nullptr) {
-    Serial.print("Failed to find our service UUID: ");
+    Serial.print("Failed to find service UUID: ");
     Serial.println(connectUUID.toString().c_str());
     client->disconnect();
     return false;
   }
-  Serial.println(" - Found our service");
+  Serial.println("Found device.");
 
-  // Obtain a reference to the characteristic in the service of the remote BLE server.
+  // Look for the sensor
   sensorCharacteristic = remoteService->getCharacteristic(sensorUUID);
   if (sensorCharacteristic == nullptr) {
     Serial.print("Failed to find sensor characteristic UUID: ");
@@ -153,10 +151,10 @@ bool connectToServer() {
     client->disconnect();
     return false;
   }
-  Serial.println(" - Found sensor");
+  Serial.println("Found sensor.");
   sensorCharacteristic->registerForNotify(notifyCallback);
 
-  // Obtain a reference to the characteristic in the service of the remote BLE server.
+  // Look for the write service
   writeCharacteristic = remoteService->getCharacteristic(writeUUID);
   if (writeCharacteristic == nullptr) {
     Serial.print("Failed to find write characteristic UUID: ");
@@ -204,23 +202,30 @@ void setup() {
 }
 
 void loop() {
-
-  // If the flag "doConnect" is true then we have scanned for and found the desired
-  // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
-  // connected we set the connected flag to be true.
+  // We found the device, connect to it
   if (doConnect == true) {
     if (connectToServer()) {
-      Serial.println("We are now connected to the BLE Server.");
+      Serial.println("Connected to elliptical.");
     } else {
-      Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+      Serial.println("Failed to connect.");
     }
     doConnect = false;
   }
 
-  if(!connected && doScan){
+  // Start scan
+  if(!connected){
     scanner->start(5, false);
   }
 
+  // Update timer if cadence is rolling
+  if(cadence > 0) {
+    unsigned long now = millis();
+    runtime += now - last_millis;
+    last_millis = now; 
+  } else {
+    last_millis = millis();  
+  }
+  
   delay(200); // Delay a second between loops.
   updateDisplay();
 }
