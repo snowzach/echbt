@@ -2,14 +2,9 @@
 #include "heltec.h"
 #include "BLEDevice.h"
 #include "icons.h"
+#include "list.h"
+#include "power.h"
 
-// The Echelon Services
-static BLEUUID     deviceUUID("0bf669f0-45f2-11e7-9598-0800200c9a66");
-static BLEUUID    connectUUID("0bf669f1-45f2-11e7-9598-0800200c9a66");
-static BLEUUID      writeUUID("0bf669f2-45f2-11e7-9598-0800200c9a66");
-static BLEUUID     sensorUUID("0bf669f4-45f2-11e7-9598-0800200c9a66");
-
-static boolean doConnect = false;
 static boolean connected = false;
 
 static BLERemoteCharacteristic* writeCharacteristic;
@@ -24,19 +19,22 @@ static int power = 0;
 static unsigned long runtime = 0;
 static unsigned long last_millis = 0;
 
-const int debug = 0;
-const int maxResistance = 32;
+#define debug 0
+#define maxResistance 32
 
+// Called when device sends update notification
 static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* data, size_t length, bool isNotify) {
   switch(data[1]) {
+    // Cadence notification
     case 0xD1:
       //runtime = int((data[7] << 8) + data[8]); // This runtime has massive drift
       cadence = int((data[9] << 8) + data[10]);
-      power = int(pow(1.028132, cadence) * pow(1.091815, resistance) * 3.024572);
+      power = getPower(cadence, resistance);
       break;
+    // Resistance notification
     case 0xD2:
       resistance = int(data[3]);
-      power = int(pow(1.028132, cadence) * pow(1.091815, resistance) * 3.024572);
+      power = getPower(cadence, resistance);
       break;
   }
   
@@ -56,15 +54,18 @@ static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, ui
   }
 }
 
+// Called on connect or disconnect
 class ClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
     digitalWrite(LED,HIGH);
-    Serial.println("Connected");
+    Serial.println("Connected!");
   }
   void onDisconnect(BLEClient* pclient) {
     connected = false;
+    delete(client);
+    client = nullptr;
     digitalWrite(LED,LOW);
-    Serial.println("Disconnect");
+    Serial.println("Disconnected!");
   }
 };
 
@@ -72,14 +73,14 @@ class AdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
     Serial.print("BLE Advertised Device found: ");
     Serial.println(advertisedDevice.toString().c_str());
-    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(deviceUUID)) {
-      BLEDevice::getScan()->stop();
-      device = new BLEAdvertisedDevice(advertisedDevice);
-      doConnect = true;
+    if(advertisedDevice.getName().size() > 0) {
+      BLEAdvertisedDevice * d = new BLEAdvertisedDevice;
+      *d = advertisedDevice;
+      addDevice(d);
     }
   }
 };
-
+    
 void updateDisplay() {
   Heltec.display->clear();
   
@@ -127,13 +128,24 @@ void updateDisplay() {
 
 bool connectToServer() {
   Serial.print("Connecting to ");
-  Serial.println(device->getAddress().toString().c_str());
+  Serial.println(device->getName().c_str());
+
+  Heltec.display->clear();
+  Heltec.display->setFont(ArialMT_Plain_10);
+  Heltec.display->drawString(0, 0, "Connecting to:");
+  Heltec.display->drawString(10, 12, device->getName().c_str());
+  Heltec.display->display();
 
   client = BLEDevice::createClient();
   client->setClientCallbacks(new ClientCallback());
   client->connect(device);
-  Serial.println("Connected!");
 
+  // Sometimes it immediately disconnects - client will be null if so
+  delay(200);
+  if(client == nullptr) {
+    return false;
+  }
+  
   BLERemoteService* remoteService = client->getService(connectUUID);
   if (remoteService == nullptr) {
     Serial.print("Failed to find service UUID: ");
@@ -151,8 +163,8 @@ bool connectToServer() {
     client->disconnect();
     return false;
   }
-  Serial.println("Found sensor.");
   sensorCharacteristic->registerForNotify(notifyCallback);
+  Serial.println("Enabled sensor notifications.");
 
   // Look for the write service
   writeCharacteristic = remoteService->getCharacteristic(writeUUID);
@@ -162,16 +174,11 @@ bool connectToServer() {
     client->disconnect();
     return false;
   }
-  // Enable status updates
+  // Enable device notifications
   byte message[] = {0xF0, 0xB0, 0x01, 0x01, 0xA2};
   writeCharacteristic->writeValue(message, 5);
-  Serial.println("Enabled logging");
+  Serial.println("Activated status callbacks.");
 
-  connected = true;
-  Heltec.display->init();
-  Heltec.display->flipScreenVertically();
-  Heltec.display->setFont(ArialMT_Plain_10);
-  Heltec.display->clear();
   return true;
 }
 
@@ -187,12 +194,6 @@ void setup() {
   pinMode(LED,OUTPUT);
   digitalWrite(LED,LOW);
 
-  Serial.println("Starting!");
-  
-  Heltec.display->setFont(ArialMT_Plain_10);
-  Heltec.display->drawString(0, 0, "Starting!");
-  Heltec.display->display();
-  
   BLEDevice::init("");
   scanner = BLEDevice::getScan();
   scanner->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
@@ -202,19 +203,23 @@ void setup() {
 }
 
 void loop() {
-  // We found the device, connect to it
-  if (doConnect == true) {
-    if (connectToServer()) {
-      Serial.println("Connected to elliptical.");
-    } else {
-      Serial.println("Failed to connect.");
-    }
-    doConnect = false;
-  }
-
   // Start scan
   if(!connected){
+    Serial.println("Start Scan!");
+    Heltec.display->clear();
+    Heltec.display->setFont(ArialMT_Plain_10);
+    Heltec.display->drawString(0, 0, "Starting Scan...");
+    Heltec.display->display();
     scanner->start(5, false);
+    BLEDevice::getScan()->stop();
+    
+    device = selectDevice();
+    if(device != nullptr) {
+      connected = connectToServer();
+      if(!connected) {
+        Serial.println("Failed to connect.");
+      }
+    }
   }
 
   // Update timer if cadence is rolling
@@ -226,6 +231,6 @@ void loop() {
     last_millis = millis();  
   }
   
-  delay(200); // Delay a second between loops.
+  delay(200); // Delay 200ms between loops.
   updateDisplay();
 }
