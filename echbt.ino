@@ -2,7 +2,7 @@
 #include "heltec.h"
 #include "BLEDevice.h"
 #include "icons.h"
-#include "list.h"
+#include "device.h"
 #include "power.h"
 
 static boolean connected = false;
@@ -115,7 +115,7 @@ void updateDisplay() {
 
   // Resistance
   Heltec.display->setTextAlignment(TEXT_ALIGN_CENTER);
-  itoa(resistance, buf, 10);
+  itoa(getPeletonResistance(resistance), buf, 10);
   Heltec.display->drawString(116, 42, buf);
   Heltec.display->drawXbm(0, 52, resistance_icon_width, resistance_icon_height, resistance_icon);
   Heltec.display->drawProgressBar(23, 49, 78, 14, uint8_t((100 * resistance) / maxResistance));
@@ -131,11 +131,13 @@ bool connectToServer() {
   Serial.println(device->getName().c_str());
 
   Heltec.display->clear();
+  Heltec.display->setLogBuffer(10, 50);
   Heltec.display->setFont(ArialMT_Plain_10);
-  Heltec.display->drawString(0, 0, "Connecting to:");
-  Heltec.display->drawString(10, 12, device->getName().c_str());
+  Heltec.display->println("Connecting to:");
+  Heltec.display->println(device->getName().c_str());
+  Heltec.display->drawLogBuffer(0, 0);
   Heltec.display->display();
-
+    
   client = BLEDevice::createClient();
   client->setClientCallbacks(new ClientCallback());
   client->connect(device);
@@ -189,10 +191,12 @@ void setup() {
     
   Heltec.display->init();
   Heltec.display->flipScreenVertically();
-  Heltec.display->clear();
   
-  pinMode(LED,OUTPUT);
-  digitalWrite(LED,LOW);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  pinMode(KEY_BUILTIN, OUTPUT);
+  digitalWrite(KEY_BUILTIN, HIGH);
 
   BLEDevice::init("");
   scanner = BLEDevice::getScan();
@@ -207,18 +211,35 @@ void loop() {
   if(!connected){
     Serial.println("Start Scan!");
     Heltec.display->clear();
+    Heltec.display->drawXbm(64, 0, mountain_icon_width, mountain_icon_height, mountain_icon);
+    Heltec.display->setLogBuffer(10, 50);
     Heltec.display->setFont(ArialMT_Plain_10);
-    Heltec.display->drawString(0, 0, "Starting Scan...");
+    Heltec.display->println("Starting Scan..");
+    Heltec.display->drawLogBuffer(0, 0);
     Heltec.display->display();
-    scanner->start(5, false);
+    scanner->start(6, false); // Scan for 5 seconds
     BLEDevice::getScan()->stop();
-    
-    device = selectDevice();
+
+    device = selectDevice(); // Pick a device
     if(device != nullptr) {
       connected = connectToServer();
       if(!connected) {
-        Serial.println("Failed to connect.");
+        Serial.println("Failed to connect...");
+        Heltec.display->println("Failed to");
+        Heltec.display->println("connect...");
+        Heltec.display->drawLogBuffer(0, 0);
+        Heltec.display->display();
+        delay(1100);
+        return;
       }
+    } else {
+      Serial.println("No device found...");
+      Heltec.display->println("No device"); 
+      Heltec.display->println("found...");
+      Heltec.display->drawLogBuffer(0, 0);
+      Heltec.display->display();
+      delay(1100);
+      return;
     }
   }
 
