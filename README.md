@@ -1,6 +1,6 @@
 # ECHBT
 
-[[/icons/screenshot.png|SCREENSHOT]]
+![Screenshot](icons/screenshot.png)
 
 This is a Bluetooth client for the Echelon Sport stationary bike.
 It's written using Arduino and designed for this board:
