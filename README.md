@@ -1,5 +1,4 @@
 # ECHBT
-
 ![Screenshot](icons/screenshot.png)
 
 This is a Bluetooth client for the Echelon Sport stationary bike. (May work with others)
@@ -16,6 +15,9 @@ It shows:
 * Calculated Power
 
 The resistance and power is roughly adjusted to be compatible with Peleton.
+
+## Now an Android App!
+For an Android App that displays this information as an overlay over any other apps, check out [EchBT Stats](https://www.echbt.com)
 
 ## Display for Cadence Sensors
 If you have a normal cadence sensor for your spin bike, checkout [My Cadence for Arduino](https://github.com/jamesmontemagno/mycadence-arduino), a fork of this project that enables you to get realtime cadence for any cadence sensor.
