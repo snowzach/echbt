@@ -22,6 +22,9 @@ For an Android App that displays this information as an overlay over any other a
 ## Display for Cadence Sensors
 If you have a normal cadence sensor for your spin bike, checkout [My Cadence for Arduino](https://github.com/jamesmontemagno/mycadence-arduino), a fork of this project that enables you to get realtime cadence for any cadence sensor.
 
+## Cases
+[Echelon EX-15 case by brian529](https://www.thingiverse.com/thing:4806275)
+
 LICENSE: <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/80x15.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
 
 
