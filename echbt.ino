@@ -13,11 +13,14 @@ static BLEAdvertisedDevice* device;
 static BLEClient* client;
 static BLEScan* scanner;
 
+const unsigned long ScreenTimeoutMillis = 120000;
+
 static int cadence = 0;
 static int resistance = 0;
 static int power = 0;
 static unsigned long runtime = 0;
 static unsigned long last_millis = 0;
+static unsigned long last_cadence = 0;
 
 #define debug 0
 #define maxResistance 32
@@ -83,6 +86,12 @@ class AdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     
 void updateDisplay() {
   Heltec.display->clear();
+
+  // Screen Timeout
+  if(last_millis - last_cadence > ScreenTimeoutMillis) {
+    Heltec.display->display();
+    return;
+  }
   
   // Runtime
   Heltec.display->setFont(ArialMT_Plain_24);
@@ -181,6 +190,9 @@ bool connectToServer() {
   writeCharacteristic->writeValue(message, 5);
   Serial.println("Activated status callbacks.");
 
+  // This will ensure the display comes on initially
+  last_cadence = millis();  
+
   return true;
 }
 
@@ -190,7 +202,7 @@ void setup() {
   delay(50);
     
   Heltec.display->init();
-  Heltec.display->flipScreenVertically();
+  // Heltec.display->flipScreenVertically();
   
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
@@ -247,7 +259,8 @@ void loop() {
   if(cadence > 0) {
     unsigned long now = millis();
     runtime += now - last_millis;
-    last_millis = now; 
+    last_millis = now;
+    last_cadence = now;
   } else {
     last_millis = millis();  
   }
